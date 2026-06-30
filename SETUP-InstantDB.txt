@@ -1,0 +1,123 @@
+==========================================================
+  POMODORO APP — SETUP (online hosting + optional sync)
+==========================================================
+
+The app works on its own the moment you open it — the timer and your
+Work/Personal task lists are saved on the device you're using.
+
+If you ALSO want it online (open it from your phone + laptop with the same
+tasks), do the two short one-time steps below:
+
+  PART 1 — Put the app online with GitHub Pages              ~5 min
+  PART 2 — (optional) Turn on sign-in + cross-device sync    ~5 min
+
+No coding required.
+
+
+----------------------------------------------------------
+PART 1 — Host it free on GitHub Pages
+----------------------------------------------------------
+1. Make a free account at  https://github.com  (skip if you have one).
+   (Your username decides your web address. These steps assume "eloren18".)
+
+2. Create a repository:
+   - Top-right "+" -> "New repository".
+   - Repository name:  pomodoro     <-- use exactly this so the address and
+                                        the Deploy button match.
+   - Visibility: Public.   (Pages needs Public on the free plan.)
+   - Click "Create repository". Leave it empty (no README).
+
+3. Turn on Pages:
+   - In the repo, go to "Settings" (top menu) -> "Pages" (left menu).
+   - Under "Build and deployment" -> Source: "Deploy from a branch".
+   - Branch: "main"  and  folder: "/ (root)"  ->  Save.
+     (If "main" isn't there yet, do step 4 first, then come back.)
+
+4. Publish from your computer:
+   - Just DOUBLE-CLICK  Deploy.bat  in this folder.
+   - The first time, a GitHub login window may pop up — sign in once and it
+     remembers you after that.
+   - Every time you (or Claude) change the app, double-click Deploy.bat again.
+
+5. Wait ~1 minute, then your app is live at:
+       https://eloren18.github.io/pomodoro/
+   (Replace "eloren18" with your username if different.) Bookmark it.
+
+   TIP: add it to your phone's home screen (Share -> "Add to Home Screen")
+   and it behaves like an app.
+
+
+----------------------------------------------------------
+PART 2 — (optional) Sign-in + sync across devices
+----------------------------------------------------------
+Without this, each device keeps its own tasks. Turn this on to sign in with
+your email and have the SAME tasks everywhere.
+
+1. Go to  https://instantdb.com  and sign in (it uses a magic code too).
+
+2. In the dashboard, click "Create app". Name it e.g. "Pomodoro".
+   You'll see an "App ID" — a long code like
+   00000000-1111-2222-3333-444444444444.  COPY it.
+
+3. Open  index.html  in a text editor (right-click -> Open with -> Notepad).
+   Near the TOP of the <script>, find:
+
+       const INSTANT_APP_ID = "";
+
+   Paste your App ID between the quotes, e.g.:
+
+       const INSTANT_APP_ID = "00000000-1111-2222-3333-444444444444";
+
+   Save the file.
+
+4. Set permissions so each person only sees their OWN data:
+   - In the InstantDB dashboard, open your app -> "Permissions" tab.
+   - Replace the contents with this and click Save:
+
+{
+  "pomodoros": {
+    "allow": {
+      "view": "auth.id != null && auth.id in data.ref('owner.id')",
+      "create": "auth.id != null",
+      "update": "auth.id != null && auth.id in data.ref('owner.id')",
+      "delete": "auth.id != null && auth.id in data.ref('owner.id')"
+    }
+  }
+}
+
+   (Important — without it, the database is open to everyone.)
+
+   You don't need to do anything for the schema: the app creates the needed
+   fields automatically the first time you save. (Advanced: you can instead
+   run "npx instant-cli@latest push schema" and "... push perms" using the
+   included instant.schema.ts / instant.perms.ts files.)
+
+5. Double-click  Deploy.bat  to publish the change. Then open your live
+   address, click "Sign in", enter your email, and type the 6-digit code
+   from your inbox. Your tasks now sync to your account on every device.
+
+
+----------------------------------------------------------
+USING IT ELSEWHERE / SHARING
+----------------------------------------------------------
+- Phone or another computer: open the SAME web address. If you turned on
+  sync (Part 2), sign in with the SAME email and your tasks load
+  automatically (most recent edit wins).
+- A friend: send them the web address. With sync on, they sign in with
+  THEIR email and get their own private tasks.
+
+
+----------------------------------------------------------
+TROUBLESHOOTING
+----------------------------------------------------------
+- Deploy.bat says "Everything up-to-date": you're already live, nothing to do.
+- Changes don't show on the live site: wait ~1 min, then HARD REFRESH the
+  page (Ctrl+Shift+R), or open it in a private/incognito window — the old
+  version is just cached.
+- "Sign in" does nothing / stuck: the App ID isn't pasted in (Part 2 step 3),
+  or you didn't redeploy after pasting it.
+- Code email not arriving: check spam; make sure the email is typed right.
+- Not syncing between devices: confirm the Permissions in Part 2 step 4 were
+  saved, that you redeployed, and that you're signed in with the same email
+  on both.
+==========================================================
