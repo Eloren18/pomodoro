@@ -82,6 +82,7 @@ header{display:flex;justify-content:space-between;align-items:center;gap:14px;ma
 .sdot.on{background:#22c55e}.sdot.sync{background:var(--blue);animation:pulse 1s infinite}.sdot.err{background:#ef4444}
 @keyframes pulse{50%{opacity:.35}}
 .iconbtn{width:40px;height:40px;border-radius:13px;display:grid;place-items:center;cursor:pointer;font-size:16px;padding:0;color:var(--text)}
+.chip.mini-on{border-color:var(--purple);color:var(--purple);box-shadow:0 0 0 2px rgba(124,77,255,0.25)}
 
 /* ===================== tab switch (work/personal) ===================== */
 .tabs{display:flex;gap:5px;background:var(--glass-2);border:1px solid var(--border);border-radius:18px;padding:5px;margin-bottom:20px;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px)}
@@ -269,6 +270,7 @@ main{display:grid;grid-template-columns:1.35fr 1fr;gap:20px;align-items:start}
       <div class="chip">Sessions<strong id="todayCount">0</strong></div>
       <div class="chip">Today<strong id="todayTime">0m</strong></div>
       <div class="chip account" id="accountBtn"><span class="sdot" id="syncDot"></span><span class="lbl" id="accountLabel">Sign in</span></div>
+      <div class="chip iconbtn" id="miniBtn" title="Pop-out mini timer — floats on top of other windows">⧉</div>
       <div class="chip iconbtn" id="gearBtn" title="Settings">⚙️</div>
     </div>
   </header>
@@ -631,6 +633,7 @@ function paintRing(){
   RING.style.strokeDashoffset = CIRC * (1 - frac);
   $("timeText").textContent = fmt(remaining);
   document.title = (running ? fmt(remaining)+" · " : "") + MODE_LABEL[mode] + " — Pomodoro";
+  renderMini();
 }
 function renderTimer(){
   [...$("modes").children].forEach(b => b.classList.toggle("active", b.dataset.m === mode));
@@ -878,7 +881,115 @@ function buildThemePicker(){
 $("gearBtn").addEventListener("click", () => { buildThemePicker(); $("durEvery").value = data.settings.longEvery; $("settingsOverlay").classList.add("show"); });
 $("settingsDone").addEventListener("click", () => $("settingsOverlay").classList.remove("show"));
 $("settingsOverlay").addEventListener("click", e => { if (e.target.id === "settingsOverlay") $("settingsOverlay").classList.remove("show"); });
-$("themePicker").addEventListener("click", e => { const sw = e.target.closest("[data-theme-id]"); if (!sw) return; data.settings.theme = sw.dataset.themeId; applyTheme(); buildThemePicker(); save(); });
+$("themePicker").addEventListener("click", e => { const sw = e.target.closest("[data-theme-id]"); if (!sw) return; data.settings.theme = sw.dataset.themeId; applyTheme(); syncMiniTheme(); buildThemePicker(); save(); });
+
+/* ===================== compact always-on-top mini timer =====================
+   Uses the Document Picture-in-Picture API (Chrome/Edge) for a small, INTERACTIVE
+   window that floats above every other app — no download needed. Falls back to a
+   canvas→video Picture-in-Picture (Safari/Firefox) that's display-only. */
+const MINI_CSS = `
+*{box-sizing:border-box;margin:0;padding:0;font-family:Inter,system-ui,-apple-system,sans-serif}
+html,body{height:100%}
+body{display:flex;align-items:center;justify-content:center;background:var(--page,#1a0d2e);color:var(--text,#fff);overflow:hidden;position:relative}
+body::before{content:"";position:fixed;inset:0;background:var(--grad);opacity:.55;z-index:0}
+.mini{position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;padding:12px;text-align:center}
+.m-top{display:flex;gap:7px;align-items:center;font-size:10px;text-transform:uppercase;letter-spacing:.18em;color:var(--text-soft,#bbb);font-weight:600}
+.m-task{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:0;font-weight:500}
+.m-time{font-size:54px;font-weight:300;line-height:1;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.m-bar{width:82%;height:6px;border-radius:20px;background:rgba(255,255,255,.28);overflow:hidden}
+.m-bar span{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--ring1,#ff6ba1),var(--ring3,#4dc4ff));border-radius:20px;transition:width .3s linear}
+.m-ctrls{display:flex;gap:8px;margin-top:3px}
+.m-btn{border:1px solid rgba(255,255,255,.4);background:rgba(255,255,255,.16);color:var(--text,#fff);font:inherit;font-weight:600;font-size:13px;padding:8px 16px;border-radius:12px;cursor:pointer}
+.m-btn:hover{background:rgba(255,255,255,.28)}
+.m-primary{background:linear-gradient(135deg,var(--pink,#ff6ba1),var(--purple,#7c4dff));border-color:transparent;color:#fff}
+`;
+let pipWin = null, pipEls = null, vpip = null;
+const miniIsOpen = () => !!(pipWin || vpip);
+function updateMiniBtn(){ const b = $("miniBtn"); if (b) b.classList.toggle("mini-on", miniIsOpen()); }
+const MINI_VARS = ["--text","--text-soft","--grad","--page","--pink","--purple","--ring1","--ring3"];
+function syncMiniTheme(){
+  if (!pipWin) return;
+  const cs = getComputedStyle(document.documentElement);
+  MINI_VARS.forEach(v => pipWin.document.documentElement.style.setProperty(v, cs.getPropertyValue(v)));
+}
+function buildMini(){
+  const doc = pipWin.document;
+  const style = doc.createElement("style"); style.textContent = MINI_CSS; doc.head.appendChild(style);
+  syncMiniTheme();
+  const wrap = doc.createElement("div"); wrap.className = "mini";
+  wrap.innerHTML = `<div class="m-top"><span class="m-mode"></span><span class="m-task"></span></div>
+    <div class="m-time">--:--</div><div class="m-bar"><span></span></div>
+    <div class="m-ctrls"><button class="m-btn m-primary"></button><button class="m-btn m-skip">Skip ⏭</button></div>`;
+  doc.body.appendChild(wrap);
+  pipEls = { mode:wrap.querySelector(".m-mode"), task:wrap.querySelector(".m-task"), time:wrap.querySelector(".m-time"),
+             bar:wrap.querySelector(".m-bar span"), primary:wrap.querySelector(".m-primary"), skip:wrap.querySelector(".m-skip") };
+  pipEls.primary.addEventListener("click", toggle);
+  pipEls.skip.addEventListener("click", skip);
+  doc.addEventListener("keydown", e => { if (e.code === "Space"){ e.preventDefault(); toggle(); } });
+}
+function renderMini(){
+  if (!pipWin || !pipEls) return;
+  pipEls.mode.textContent = MODE_LABEL[mode];
+  const tab = data.activeTab, tid = data.active[tab], t = tid ? data.tasks[tab].find(x => x.id === tid) : null;
+  pipEls.task.textContent = (mode === "focus" && t) ? ("· " + t.title) : "";
+  pipEls.time.textContent = fmt(remaining);
+  const total = durOf(mode), frac = total ? clamp(remaining/total, 0, 1) : 0;
+  pipEls.bar.style.width = (frac*100) + "%";
+  pipEls.primary.textContent = running ? "Pause" : (remaining < durOf(mode) ? "Resume" : "Start");
+}
+function onPipClose(){ pipWin = null; pipEls = null; updateMiniBtn(); }
+async function openMini(){
+  if (miniIsOpen()){ closeMini(); return; }
+  try {
+    if (window.documentPictureInPicture && window.documentPictureInPicture.requestWindow){
+      pipWin = await window.documentPictureInPicture.requestWindow({ width:300, height:210 });
+      buildMini(); renderMini(); updateMiniBtn(); primeAudio();
+      pipWin.addEventListener("pagehide", onPipClose);
+    } else if (document.pictureInPictureEnabled){
+      await openVideoPip(); updateMiniBtn();
+    } else {
+      toast("Pop-out needs Chrome or Edge 🙂");
+    }
+  } catch (e){ console.warn("mini timer:", e); if (String(e && e.name) !== "AbortError") toast("Couldn't open the mini timer."); }
+}
+function closeMini(){
+  if (pipWin){ try { pipWin.close(); } catch {} pipWin = null; pipEls = null; }
+  if (vpip){ try { if (document.pictureInPictureElement) document.exitPictureInPicture(); } catch {} try { clearInterval(vpip.iv); } catch {} vpip = null; }
+  updateMiniBtn();
+}
+$("miniBtn").addEventListener("click", openMini);
+
+/* fallback: display-only floating timer via canvas→video PiP */
+async function openVideoPip(){
+  const canvas = document.createElement("canvas"); canvas.width = 300; canvas.height = 200;
+  const ctx = canvas.getContext("2d");
+  const video = document.createElement("video"); video.muted = true; video.playsInline = true;
+  const draw = () => drawMiniCanvas(ctx, canvas.width, canvas.height);
+  draw();
+  video.srcObject = canvas.captureStream(8);
+  const iv = setInterval(draw, 500);
+  vpip = { video, iv };
+  await video.play();
+  video.addEventListener("leavepictureinpicture", () => { clearInterval(iv); vpip = null; updateMiniBtn(); });
+  await video.requestPictureInPicture();
+}
+function drawMiniCanvas(ctx, w, h){
+  const cs = getComputedStyle(document.documentElement);
+  const text = cs.getPropertyValue("--text").trim() || "#fff";
+  const accent = cs.getPropertyValue("--pink").trim() || "#ff6ba1";
+  const page = cs.getPropertyValue("--page").trim() || "#1a0d2e";
+  ctx.fillStyle = page; ctx.fillRect(0,0,w,h);
+  ctx.textAlign = "center"; ctx.fillStyle = text;
+  ctx.globalAlpha = .7; ctx.font = "600 12px Inter,system-ui,sans-serif";
+  ctx.fillText(MODE_LABEL[mode].toUpperCase(), w/2, 42); ctx.globalAlpha = 1;
+  ctx.font = "300 54px Inter,system-ui,sans-serif";
+  ctx.fillText(fmt(remaining), w/2, 108);
+  const total = durOf(mode), frac = total ? clamp(remaining/total, 0, 1) : 0;
+  ctx.fillStyle = "rgba(150,150,170,.35)"; ctx.fillRect(45,135,w-90,6);
+  ctx.fillStyle = accent; ctx.fillRect(45,135,(w-90)*frac,6);
+  ctx.globalAlpha = .75; ctx.fillStyle = text; ctx.font = "500 12px Inter,system-ui,sans-serif";
+  ctx.fillText(running ? "running" : "paused", w/2, 170); ctx.globalAlpha = 1;
+}
 
 /* ===================== cloud sync (InstantDB) ===================== */
 function setSync(state, text){ const dot = $("syncDot"), label = $("accountLabel"); if (dot) dot.className = "sdot" + (state?" "+state:""); if (label && text != null) label.textContent = text; }
